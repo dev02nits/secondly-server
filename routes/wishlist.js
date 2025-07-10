@@ -335,7 +335,10 @@ router.post("/add", async (req, res) => {
     }
 
     // Add to both specified bucket and "all"
-    wishlist[bucket].push(newItem);
+       if(bucket!="all"){
+        wishlist[bucket].push(newItem);
+      }
+    // wishlist[bucket].push(newItem);
     wishlist["all"].push(newItem);
 
     const payload = {
