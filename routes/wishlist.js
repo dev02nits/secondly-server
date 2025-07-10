@@ -150,23 +150,24 @@ router.post("/toggle", async (req, res) => {
     if (!wishlist[bucketKey]) wishlist[bucketKey] = [];
     if (!wishlist["all"]) wishlist["all"] = [];
 
-    const exists = wishlist[bucketKey].some(
-      (p) => p.variantId === newItem.variantId
-    );
+ const exists = wishlist[bucketKey].some(
+  (p) => p.productTitle === newItem.productTitle
+);
 
-    if (exists) {
-      wishlist[bucketKey] = wishlist[bucketKey].filter(
-        (p) => p.variantId !== newItem.variantId
-      );
-      wishlist["all"] = wishlist["all"].filter(
-        (p) => p.variantId !== newItem.variantId
-      );
-    } else {
-      if(bucketKey!="all"){
-        wishlist[bucketKey].push(newItem);
-      }
-      wishlist["all"].push(newItem);
-    }
+if (exists) {
+  wishlist[bucketKey] = wishlist[bucketKey].filter(
+    (p) => p.productTitle !== newItem.productTitle
+  );
+  wishlist["all"] = wishlist["all"].filter(
+    (p) => p.productTitle !== newItem.productTitle
+  );
+} else {
+  if (bucketKey !== "all") {
+    wishlist[bucketKey].push(newItem);
+  }
+  wishlist["all"].push(newItem);
+}
+
 
     const orderedWishlist = {
       all: wishlist["all"],
@@ -321,8 +322,9 @@ router.post("/add", async (req, res) => {
     if (!wishlist[bucket]) wishlist[bucket] = [];
     if (!wishlist["all"]) wishlist["all"] = [];
 
+    // 🔄 Check by productTitle instead of variantId
     const alreadyExists = wishlist[bucket].some(
-      (p) => p.variantId === newItem.variantId
+      (p) => p.productTitle === newItem.productTitle
     );
 
     if (alreadyExists) {
@@ -335,10 +337,9 @@ router.post("/add", async (req, res) => {
     }
 
     // Add to both specified bucket and "all"
-       if(bucket!="all"){
-        wishlist[bucket].push(newItem);
-      }
-    // wishlist[bucket].push(newItem);
+    if (bucket !== "all") {
+      wishlist[bucket].push(newItem);
+    }
     wishlist["all"].push(newItem);
 
     const payload = {
@@ -369,6 +370,7 @@ router.post("/add", async (req, res) => {
     res.status(500).json({ error: "Server error" });
   }
 });
+
 
 router.post("/remove-bucket", async (req, res) => {
   const { email, bucket } = req.body;
