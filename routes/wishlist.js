@@ -9,32 +9,69 @@ router.get("/get", async (req, res) => {
   if (!email) return res.status(400).json({ error: "Email is required" });
 
   try {
+    // Search for customer
     const searchRes = await shopifyRequest(
       `customers/search.json?query=email:${email}`,
       "GET"
     );
     const customers = JSON.parse(searchRes.data).customers;
+
     if (!customers.length)
       return res.status(404).json({ error: "Customer not found" });
 
     const customerId = customers[0].id;
 
+    // Get customer's metafields
     const metaRes = await shopifyRequest(
       `customers/${customerId}/metafields.json`,
       "GET"
     );
     const metas = JSON.parse(metaRes.data).metafields;
-    const wishlistMeta = metas.find(
+
+    // Find wishlist metafield
+    let wishlistMeta = metas.find(
       (m) => m.namespace === "custom" && m.key === "wishlist"
     );
 
-    const wishlist = wishlistMeta ? JSON.parse(wishlistMeta.value) : {};
-    res.json({ wishlist: wishlist || [] });
+    let wishlist = { all: [] }; // Default structure
+
+    if (wishlistMeta && wishlistMeta.value) {
+      try {
+        const parsed = JSON.parse(wishlistMeta.value);
+        if (typeof parsed === "object" && Array.isArray(parsed.all)) {
+          wishlist = parsed;
+        }
+      } catch (err) {
+        console.warn("Invalid JSON in wishlist metafield, using default.");
+      }
+    } else {
+      // If wishlist metafield does not exist, create it
+      const createRes = await shopifyRequest(
+        `metafields.json`,
+        "POST",
+        {
+          metafield: {
+            namespace: "custom",
+            key: "wishlist",
+            value: JSON.stringify(wishlist),
+            type: "json",
+            owner_id: customerId,
+            owner_resource: "customer"
+          }
+        }
+      );
+
+      // Optional: update local variable with newly created metafield
+      wishlistMeta = JSON.parse(createRes.data).metafield;
+    }
+
+    res.json({ wishlist });
   } catch (err) {
     console.error("Wishlist GET error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
+
 
 router.post("/remove", async (req, res) => {
   const { email, productTitle, variantId } = req.body;
