@@ -79,7 +79,7 @@ const addCustomerMetafields = async (res, customer) => {
   return res.status(200).json({ message: "Metafields added successfully.", created });
 };
 
-router.post("/update-name-by-email", async (req, res) => {
+router.post("/update-name", async (req, res) => {
   try {
     const { email, first_name, last_name } = req.body;
     console.log(req.body)
