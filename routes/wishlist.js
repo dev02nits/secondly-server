@@ -74,21 +74,20 @@ router.get("/get", async (req, res) => {
 
 
 router.post("/remove", async (req, res) => {
-  const { email, productTitle, variantId } = req.body;
-  if (!email || (!productTitle && !variantId)) {
-    return res
-      .status(400)
-      .json({ error: "Missing email and product identifier" });
-  }
+  const { email, productTitle, bucket } = req.body;
 
+  if (!email || !productTitle || !bucket) {
+    return res.status(400).json({ error: "Missing email or product info" });
+  }
   try {
     const searchRes = await shopifyRequest(
       `customers/search.json?query=email:${email}`,
       "GET"
     );
     const customers = JSON.parse(searchRes.data).customers;
-    if (!customers.length)
+    if (!customers.length) {
       return res.status(404).json({ error: "Customer not found" });
+    }
 
     const customerId = customers[0].id;
     const metaRes = await shopifyRequest(
@@ -100,21 +99,43 @@ router.post("/remove", async (req, res) => {
       (m) => m.namespace === "custom" && m.key === "wishlist"
     );
 
-    if (!wishlistMeta)
+    if (!wishlistMeta) {
       return res.status(404).json({ error: "Wishlist not found" });
-
+    }
     let wishlist = JSON.parse(wishlistMeta.value);
 
-    const filterFn = (p) =>
-      variantId
-        ? p.variantId !== variantId
-        : p.productTitle.replace(/'/g, "") !== productTitle.replace(/'/g, "");
+    const normalizedTitle = productTitle.replace(/'/g, "").toLowerCase();
+    const matchFn = (p) =>
+      p.productTitle?.replace(/'/g, "").toLowerCase() === normalizedTitle;
 
-    for (let bucket in wishlist) {
-      wishlist[bucket] = wishlist[bucket].filter(filterFn);
+    if (bucket === "all") {
+      // Remove from ALL buckets
+      for (let b in wishlist) {
+        wishlist[b] = wishlist[b].filter((p) => !matchFn(p));
+      }
+    } else {
+      // Check if the product exists in any other bucket (excluding 'all' and current)
+      const existsInOtherBucket = Object.entries(wishlist).some(
+        ([key, items]) =>
+          key !== "all" &&
+          key !== bucket &&
+          Array.isArray(items) &&
+          items.some(matchFn)
+      );
+
+      // Remove from the current bucket
+      if (wishlist[bucket]) {
+        wishlist[bucket] = wishlist[bucket].filter((p) => !matchFn(p));
+      }
+
+      // Also remove from 'all' if it doesn't exist in other buckets
+      if (!existsInOtherBucket && wishlist["all"]) {
+        wishlist["all"] = wishlist["all"].filter((p) => !matchFn(p));
+      }
     }
+
     const orderedWishlist = {
-      all: wishlist["all"],
+      all: wishlist["all"] || [],
       ...Object.keys(wishlist)
         .filter((key) => key !== "all")
         .reduce((acc, key) => {
@@ -137,18 +158,22 @@ router.post("/remove", async (req, res) => {
       "PUT",
       payload
     );
-    if (!saveRes.ok) throw new Error("Failed to update wishlist");
+
+    if (!saveRes.ok) {
+      throw new Error("Failed to update wishlist");
+    }
 
     res.json({
       success: true,
       message: "Item removed",
-      wishlist: wishlist["all"] || [],
+      wishlist: orderedWishlist["all"] || [],
     });
   } catch (err) {
     console.error("Wishlist REMOVE error:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
+
 
 router.post("/toggle", async (req, res) => {
   const { email, bucket, newItem } = req.body;
@@ -496,5 +521,122 @@ router.post("/remove-bucket", async (req, res) => {
 });
 
 
+router.post("/replace-bucket", async (req, res) => {
+  const { email, bucket, productTitles } = req.body;
+
+  if (!email || !bucket || !Array.isArray(productTitles)) {
+    return res.status(400).json({ error: "Missing or invalid fields" });
+  }
+
+  try {
+    const searchRes = await shopifyRequest(
+      `customers/search.json?query=email:${email}`,
+      "GET"
+    );
+    const customers = JSON.parse(searchRes.data).customers;
+    if (!customers.length) {
+      return res.status(404).json({ error: "Customer not found" });
+    }
+
+    const customerId = customers[0].id;
+    const metaRes = await shopifyRequest(
+      `customers/${customerId}/metafields.json`,
+      "GET"
+    );
+    const metas = JSON.parse(metaRes.data).metafields;
+    const wishlistMeta = metas.find(
+      (m) => m.namespace === "custom" && m.key === "wishlist"
+    );
+
+    if (!wishlistMeta) {
+      return res.status(404).json({ error: "Wishlist not found" });
+    }
+
+    let wishlist = JSON.parse(wishlistMeta.value);
+    const normalize = (str) => str.replace(/'/g, "").toLowerCase();
+
+    // Build a lookup map of all wishlist products from all buckets
+    const allProductsMap = {};
+    for (const [bKey, items] of Object.entries(wishlist)) {
+      for (const item of items) {
+        const key = normalize(item.productTitle);
+        if (!allProductsMap[key]) {
+          allProductsMap[key] = item;
+        }
+      }
+    }
+
+    // Construct new bucket list based on given titles
+const newBucketProducts = [];
+for (const title of productTitles) {
+  const key = normalize(title);
+  if (allProductsMap[key]) {
+    newBucketProducts.push({ ...allProductsMap[key] });
+  } else {
+    console.warn(`Product "${title}" not found in any bucket.`);
+  }
+}
+
+if (bucket === "all") {
+  // Replace 'all' bucket exactly
+  wishlist["all"] = newBucketProducts;
+
+  // Build set of new 'all' product titles
+  const newAllTitlesSet = new Set(productTitles.map(t => normalize(t)));
+
+  // Remove from other buckets products not in 'all'
+  for (const key of Object.keys(wishlist)) {
+    if (key === "all") continue;
+    wishlist[key] = wishlist[key].filter(
+      (item) => newAllTitlesSet.has(normalize(item.productTitle))
+    );
+  }
+} else {
+  // Replace only the specified bucket
+  wishlist[bucket] = newBucketProducts;
+}
+
+    const orderedWishlist = {
+      all: wishlist["all"] || [],
+      ...Object.keys(wishlist)
+        .filter((key) => key !== "all")
+        .reduce((acc, key) => {
+          acc[key] = wishlist[key];
+          return acc;
+        }, {}),
+    };
+
+    const payload = {
+      metafield: {
+        namespace: "custom",
+        key: "wishlist",
+        type: "json",
+        value: JSON.stringify(orderedWishlist),
+      },
+    };
+
+    const saveRes = await shopifyRequest(
+      `customers/${customerId}/metafields/${wishlistMeta.id}.json`,
+      "PUT",
+      payload
+    );
+
+    if (!saveRes.ok) {
+      throw new Error("Failed to update wishlist");
+    }
+
+    res.json({
+      success: true,
+      message: `Bucket '${bucket}' replaced successfully`,
+      wishlist: wishlist[bucket],
+    });
+  } catch (err) {
+    console.error("Wishlist REPLACE BUCKET error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+
 
 export default router;
+
