@@ -82,7 +82,7 @@ const addCustomerMetafields = async (res, customer) => {
 router.put("/update-name-by-email", async (req, res) => {
   try {
     const { email, first_name, last_name } = req.body;
-
+    console.log(req.body)
     if (!email || !first_name || !last_name) {
       return res.status(400).json({
         error: "Missing required fields: email, first_name, last_name",
