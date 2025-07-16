@@ -13,23 +13,26 @@ router.get("/all", async (req, res) => {
   }
 });
 
-router.get("/:customerEmail", async (req, res) => {
+router.get("/getplan/:customerEmail", async (req, res) => {
   try {
     const { ok, status, data } = await shopifyRequest(`orders.json?email=${req.params.customerEmail}`);
     if (!ok) return res.status(status).json({ error: "Failed to fetch orders from Shopify" });
 
-    const orders = JSON.parse(data).orders;
-    const simplifiedOrders = orders.map((order) => {
-      const lineItem = order.line_items[0];
-      const createdDate = new Date(order.created_at);
-      const dateOnly = createdDate.toISOString().split("T")[0];
+const orders = JSON.parse(data).orders;
+const simplifiedOrders = orders.map((order) => {
+  const lineItem = order.line_items[0];
+  const createdDate = new Date(order.created_at);
+  const dateOnly = createdDate.toISOString().split("T")[0];
 
-      const nextMonthDate = new Date(createdDate);
-      nextMonthDate.setMonth(createdDate.getMonth() + 1);
-      const nextMonthDateOnly = nextMonthDate.toISOString().split("T")[0];
+  // Add exactly 30 days
+  const nextMonthDate = new Date(createdDate);
+  // nextMonthDate.setMonth(createdDate.getMonth() + 1);
+  nextMonthDate.setDate(createdDate.getDate() + 30);
+  const nextMonthDateOnly = nextMonthDate.toISOString().split("T")[0];
 
-      const today = new Date(); // Replace with fixed date for testing if needed
-      const daysLeft = Math.ceil((new Date(nextMonthDateOnly) - today) / (1000 * 60 * 60 * 24));
+  const today = new Date(); // Replace with fixed date for testing if needed
+  const daysLeft = Math.ceil((nextMonthDate - today) / (1000 * 60 * 60 * 24));
+
 
       return {
         orderId: order.id,
